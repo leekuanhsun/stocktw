@@ -1,0 +1,536 @@
+<title>每天股票推薦系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: { sans: ["Inter", "Noto Sans TC", "sans-serif"] } } } };
+</script>
+<style>
+/* 版面:全螢幕影片主視覺(玻璃導覽列、底部標題)→ 今日推薦卡片 → 評分方式與資料來源。單一深色主題。 */
+:root {
+  color-scheme: dark;
+  --bg: #000000;
+  --ink: #ffffff;
+  --ink-2: #d1d5db;      /* gray-300 */
+  --muted: #9ca3af;      /* gray-400 */
+  --line: rgba(255, 255, 255, 0.2);
+  --up: #ff5a5a;         /* 台股慣例:紅漲 */
+  --down: #34c27a;       /* 綠跌 */
+}
+html { background: var(--bg); scroll-behavior: smooth; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'Inter', 'Noto Sans TC', sans-serif;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
+.num { font-variant-numeric: tabular-nums; }
+.up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--ink-2); }
+
+.liquid-glass {
+  background: rgba(0, 0, 0, 0.4);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 20%,
+    rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.1) 80%, rgba(255,255,255,0.3) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* 進場動畫 */
+.char { display: inline-block; opacity: 0; transform: translateX(-18px); transition: opacity 500ms ease, transform 500ms ease; }
+.char.on { opacity: 1; transform: translateX(0); }
+.fade { opacity: 0; transition-property: opacity; }
+.fade.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .char, .fade { opacity: 1 !important; transform: none !important; transition: none !important; }
+}
+
+.hero { height: 100svh; min-height: 560px; }
+a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* 推薦卡片 */
+.ring { --p: 80; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: conic-gradient(#ffffff calc(var(--p) * 1%), rgba(255,255,255,0.15) 0); }
+.ring span { width: 44px; height: 44px; border-radius: 50%; background: #0b0b0b; display: grid; place-items: center; font-weight: 600; font-size: 15px; }
+.spark { width: 100%; max-width: 100%; height: auto; display: block; }
+.dates::-webkit-scrollbar { height: 4px; }
+/* 可左右滑動但不顯示捲軸(快捷連結、指數列) */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+</style>
+
+<!-- ===== 主視覺 ===== -->
+<section id="top" class="hero relative w-full overflow-hidden bg-black">
+  <video class="absolute inset-0 h-full w-full object-cover" autoplay loop muted playsinline
+    src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260403_050628_c4e32401-fab4-4a27-b7a8-6e9291cd5959.mp4"></video>
+
+  <div class="relative z-10 flex h-full flex-col">
+    <!-- 首頁最上方:重要聲明 -->
+    <div role="note" aria-label="重要聲明" class="bg-black/80 border-b border-white/15 px-6 md:px-12 lg:px-16 py-2 text-xs md:text-sm text-gray-300">
+      <span class="font-medium text-white">重要聲明</span>
+      本站非證券投資顧問事業,所有內容僅為公開資料的整理與規則篩選,不構成任何投資建議或買賣推薦,投資盈虧請自行負責。
+      <a href="#disclaimer" class="underline underline-offset-2 text-white whitespace-nowrap hover:text-gray-300">閱讀完整免責聲明</a>
+    </div>
+    <div class="px-6 md:px-12 lg:px-16 pt-4">
+      <nav class="liquid-glass rounded-xl px-4 py-2 flex items-center justify-between">
+        <a href="#top" class="text-2xl font-semibold tracking-tight">每日選股</a>
+        <div class="hidden lg:flex items-center gap-6 text-sm">
+          <a href="#picks" class="transition-colors hover:text-gray-300">今日推薦</a>
+          <a href="#history" class="transition-colors hover:text-gray-300">歷史清單</a>
+          <a href="#daytrade" class="px-3 py-1 rounded-full bg-white text-black font-medium transition-colors hover:bg-gray-200">當沖熱門</a>
+          <a href="#volume" class="transition-colors hover:text-gray-300">成交量</a>
+          <a href="#turnover" class="transition-colors hover:text-gray-300">週轉率</a>
+          <a href="#method" class="transition-colors hover:text-gray-300">評分方式</a>
+          <a href="#sources" class="transition-colors hover:text-gray-300">資料來源</a>
+        </div>
+        <a href="#picks" class="bg-white text-black px-6 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-gray-100">看今日推薦</a>
+      </nav>
+      <!-- 手機與平板的快捷連結(桌機改用導覽列) -->
+      <div class="lg:hidden mt-3 flex gap-2 overflow-x-auto no-scrollbar text-sm" aria-label="快速前往">
+        <a href="#daytrade" class="flex-none px-4 py-1.5 rounded-full bg-white text-black font-medium">當沖熱門</a>
+        <a href="#picks" class="flex-none liquid-glass border border-white/20 px-4 py-1.5 rounded-full">今日推薦</a>
+        <a href="#volume" class="flex-none liquid-glass border border-white/20 px-4 py-1.5 rounded-full">成交量</a>
+        <a href="#turnover" class="flex-none liquid-glass border border-white/20 px-4 py-1.5 rounded-full">週轉率</a>
+        <a href="#method" class="flex-none liquid-glass border border-white/20 px-4 py-1.5 rounded-full">評分方式</a>
+        <a href="#disclaimer" class="flex-none liquid-glass border border-white/20 px-4 py-1.5 rounded-full">免責聲明</a>
+      </div>
+      <!-- 每日收盤指數(跟著下方選取的日期) -->
+      <div class="liquid-glass rounded-xl mt-3 px-4 py-2" aria-label="每日收盤指數">
+        <div class="flex items-center gap-x-6 overflow-x-auto no-scrollbar" id="indices">
+          <span class="text-xs text-gray-300 whitespace-nowrap" id="idxDate">收盤指數</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="px-6 md:px-12 lg:px-16 flex-1 flex flex-col justify-end pb-12 lg:pb-16">
+      <div class="lg:grid lg:grid-cols-2 lg:items-end">
+        <div>
+          <h1 id="heading" class="text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-normal mb-4" style="letter-spacing: -0.04em" aria-label="看懂大戶籌碼,上市櫃各選 20 檔。"></h1>
+          <p class="fade text-base md:text-lg text-gray-300 mb-5" data-delay="800" style="transition-duration: 1000ms">每個交易日盤後比對證交所與櫃買中心資料,依三大法人、千張大戶與融資變化計分,分別推薦上市 20 檔、上櫃 20 檔。</p>
+          <div class="fade flex flex-wrap gap-4" data-delay="1200" style="transition-duration: 1000ms">
+            <a href="#picks" class="bg-white text-black px-8 py-3 rounded-lg font-medium transition-colors hover:bg-gray-100">看今日推薦</a>
+            <a href="#daytrade" class="liquid-glass border border-white/20 text-white px-8 py-3 rounded-lg font-medium transition-colors hover:bg-white hover:text-black">當沖熱門標的</a>
+            <a href="#method" class="liquid-glass border border-white/20 text-white px-8 py-3 rounded-lg font-medium transition-colors hover:bg-white hover:text-black">評分方式</a>
+          </div>
+        </div>
+        <div class="fade flex items-end justify-start lg:justify-end mt-8 lg:mt-0" data-delay="1400" style="transition-duration: 1000ms">
+          <div class="liquid-glass border border-white/20 px-6 py-3 rounded-xl">
+            <span class="text-lg md:text-xl lg:text-2xl font-light">法人。大戶。融資。</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 今日推薦 ===== -->
+<main id="picks" class="px-6 md:px-12 lg:px-16 py-16 lg:py-24">
+  <div class="mx-auto max-w-6xl grid gap-8">
+    <header class="grid gap-6 lg:grid-cols-2 lg:items-end">
+      <div class="grid gap-2">
+        <p class="text-sm text-gray-400 tracking-wide" id="asof">盤後資料</p>
+        <h2 class="text-3xl md:text-4xl font-normal" style="letter-spacing: -0.03em" id="listTitle">上市推薦 20 檔</h2>
+      </div>
+      <div id="history" class="dates flex gap-2 overflow-x-auto pb-1 lg:justify-end" role="group" aria-label="選擇交易日"></div>
+    </header>
+
+    <section class="grid grid-cols-2 md:grid-cols-4 rounded-xl border border-white/20 overflow-hidden" aria-label="當日摘要">
+      <div class="p-4 md:p-5 grid gap-1 border-white/20"><span class="text-xs text-gray-400">推薦檔數</span><span class="text-2xl num" id="sCount">—</span></div>
+      <div class="p-4 md:p-5 grid gap-1 border-l border-white/20"><span class="text-xs text-gray-400">平均推薦分數</span><span class="text-2xl num" id="sAvg">—</span></div>
+      <div class="p-4 md:p-5 grid gap-1 border-t md:border-t-0 md:border-l border-white/20"><span class="text-xs text-gray-400">上漲 / 下跌</span><span class="text-2xl num" id="sUpDown">—</span></div>
+      <div class="p-4 md:p-5 grid gap-1 border-t border-l md:border-t-0 border-white/20 min-w-0"><span class="text-xs text-gray-400">最多檔的產業</span><span class="text-xl truncate" id="sSector">—</span></div>
+    </section>
+
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="liquid-glass border border-white/20 rounded-lg p-1 inline-flex gap-1" role="group" aria-label="市場">
+        <button type="button" id="m-twse" data-market="上市" class="mk px-4 py-1.5 rounded-md text-sm">上市 20</button>
+        <button type="button" id="m-otc" data-market="上櫃" class="mk px-4 py-1.5 rounded-md text-sm">上櫃 20</button>
+        <button type="button" id="m-all" data-market="全部" class="mk px-4 py-1.5 rounded-md text-sm">全部 40</button>
+      </div>
+      <label for="sortBy" class="flex items-center gap-3 text-sm text-gray-300">排序
+        <select id="sortBy" class="bg-black border border-white/20 rounded-lg px-3 py-2 text-sm text-white">
+          <option value="score">推薦分數</option>
+          <option value="chg">漲跌幅</option>
+          <option value="vol">成交量</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="list" class="grid gap-4 md:grid-cols-2"></div>
+  </div>
+</main>
+
+<!-- ===== 當沖熱門標的 ===== -->
+<section id="daytrade" class="px-6 md:px-12 lg:px-16 pb-16 lg:pb-24">
+  <div class="mx-auto max-w-6xl grid gap-6">
+    <div class="grid gap-3">
+      <p class="text-sm text-gray-400" id="dtAsof">盤後資料</p>
+      <h2 class="text-3xl md:text-4xl font-normal" style="letter-spacing: -0.03em" id="dtTitle">當沖熱門標的</h2>
+      <p class="text-sm text-gray-400 max-w-prose" id="dtDesc"></p>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="liquid-glass border border-white/20 rounded-lg p-1 inline-flex gap-1" role="group" aria-label="做多或做空">
+          <button type="button" id="dt-long" data-side="long" class="dts px-4 py-1.5 rounded-md text-sm">做多 20 檔</button>
+          <button type="button" id="dt-short" data-side="short" class="dts px-4 py-1.5 rounded-md text-sm">做空 20 檔</button>
+        </div>
+        <span class="text-xs text-gray-500">上市、上櫃合併排名,不受上方市場切換影響</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-white/20">
+      <table class="w-full text-sm min-w-[860px]">
+        <thead class="text-xs text-gray-400 text-left whitespace-nowrap">
+          <tr class="border-b border-white/20">
+            <th class="py-3 pl-4 pr-2 font-normal w-12">名次</th>
+            <th class="py-3 px-2 font-normal">股票與理由</th>
+            <th class="py-3 px-2 font-normal text-right">收盤</th>
+            <th class="py-3 px-2 font-normal text-right">漲跌幅</th>
+            <th class="py-3 px-2 font-normal text-right">週轉率</th>
+            <th class="py-3 px-2 font-normal text-right">當沖比率</th>
+            <th class="py-3 px-2 font-normal text-right">量增</th>
+            <th class="py-3 px-2 font-normal text-right">法人(張)</th>
+            <th class="py-3 pl-2 pr-4 font-normal text-right">分數</th>
+          </tr>
+        </thead>
+        <tbody id="dtRows" class="divide-y divide-white/10"></tbody>
+      </table>
+    </div>
+    <p class="text-xs text-gray-500 max-w-prose">「隔日沖賣壓」是用公開資料推估:當天上漲 5% 以上、成交量為前 4 日均量 2 倍以上、收在當日高點附近,但三大法人沒有買超。實際的隔日沖券商分點資料需要在證交所網站輸入驗證碼查詢,本站沒有使用。當沖風險很高,名單只是依規則篩選的參考,不是投資建議。</p>
+  </div>
+</section>
+
+<!-- ===== 成交量排行 ===== -->
+<section id="volume" class="px-6 md:px-12 lg:px-16 pb-16 lg:pb-24">
+  <div class="mx-auto max-w-6xl grid gap-6">
+    <div class="grid gap-2">
+      <h2 class="text-3xl md:text-4xl font-normal" style="letter-spacing: -0.03em" id="voTitle">上市成交量前 20 名</h2>
+      <p class="text-sm text-gray-400 max-w-prose">依當日成交張數排名(1 張 = 1,000 股),代表市場資金最集中的股票。只計普通股,不含 ETF、權證。</p>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-white/20">
+      <table class="w-full text-sm min-w-[640px]">
+        <thead class="text-xs text-gray-400 text-left whitespace-nowrap">
+          <tr class="border-b border-white/20">
+            <th class="py-3 pl-4 pr-2 font-normal w-12">名次</th>
+            <th class="py-3 px-2 font-normal">股票</th>
+            <th class="py-3 px-2 font-normal text-right">收盤</th>
+            <th class="py-3 px-2 font-normal text-right">漲跌幅</th>
+            <th class="py-3 px-2 font-normal text-right">成交金額(億)</th>
+            <th class="py-3 px-2 font-normal text-right">週轉率</th>
+            <th class="py-3 pl-2 pr-4 font-normal w-56">成交量(張)</th>
+          </tr>
+        </thead>
+        <tbody id="voRows" class="divide-y divide-white/10"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 週轉率排行 ===== -->
+<section id="turnover" class="px-6 md:px-12 lg:px-16 pb-16 lg:pb-24">
+  <div class="mx-auto max-w-6xl grid gap-6">
+    <div class="grid gap-2">
+      <h2 class="text-3xl md:text-4xl font-normal" style="letter-spacing: -0.03em" id="toTitle">上市週轉率前 20 名</h2>
+      <p class="text-sm text-gray-400 max-w-prose">週轉率 = 當日成交股數 ÷ 已發行股數。數字越高,代表當天換手越熱絡,常見於題材股,股價波動通常也比較大。只計普通股。</p>
+    </div>
+    <div class="overflow-x-auto rounded-xl border border-white/20">
+      <table class="w-full text-sm min-w-[640px]">
+        <thead class="text-xs text-gray-400 text-left whitespace-nowrap">
+          <tr class="border-b border-white/20">
+            <th class="py-3 pl-4 pr-2 font-normal w-12">名次</th>
+            <th class="py-3 px-2 font-normal">股票</th>
+            <th class="py-3 px-2 font-normal text-right">收盤</th>
+            <th class="py-3 px-2 font-normal text-right">漲跌幅</th>
+            <th class="py-3 px-2 font-normal text-right">成交量(張)</th>
+            <th class="py-3 px-2 font-normal text-right">成交金額(億)</th>
+            <th class="py-3 pl-2 pr-4 font-normal w-48">週轉率</th>
+          </tr>
+        </thead>
+        <tbody id="toRows" class="divide-y divide-white/10"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 評分方式 / 資料來源 ===== -->
+<section class="px-6 md:px-12 lg:px-16 pb-16 lg:pb-24">
+  <div class="mx-auto max-w-6xl grid gap-10 lg:grid-cols-2 border-t border-white/20 pt-12">
+    <div id="method" class="grid gap-4 content-start">
+      <h2 class="text-2xl font-normal" style="letter-spacing: -0.03em">評分方式</h2>
+      <table class="w-full text-sm">
+        <tbody class="divide-y divide-white/10">
+          <tr><td class="py-2 text-gray-300">法人當日買超 ÷ 5 日均量</td><td class="py-2 text-right num">25</td></tr>
+          <tr><td class="py-2 text-gray-300">法人 5 日累計買超</td><td class="py-2 text-right num">25</td></tr>
+          <tr><td class="py-2 text-gray-300">外資、投信連續買超天數</td><td class="py-2 text-right num">10</td></tr>
+          <tr><td class="py-2 text-gray-300">千張大戶持股比例週增減</td><td class="py-2 text-right num">25</td></tr>
+          <tr><td class="py-2 text-gray-300">融資餘額減少</td><td class="py-2 text-right num">15</td></tr>
+        </tbody>
+      </table>
+      <p class="text-sm text-gray-400 max-w-prose">上市、上櫃分開計分與排名,各取前 20 名。只計 5 日均量 1,000 張以上、股價 10 元以上的普通股,且當日三大法人須為買超。</p>
+    </div>
+    <div id="sources" class="grid gap-4 content-start">
+      <h2 class="text-2xl font-normal" style="letter-spacing: -0.03em">資料來源</h2>
+      <ul class="grid gap-2 text-sm text-gray-300 list-disc pl-5">
+        <li>臺灣證券交易所:三大法人買賣超、每日收盤行情、融資融券餘額</li>
+        <li>證券櫃檯買賣中心:上櫃三大法人、收盤行情、融資融券</li>
+        <li>臺灣集中保管結算所:集保戶股權分散表(每週)</li>
+      </ul>
+      <p class="text-sm text-gray-400" id="genAt"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 免責聲明 ===== -->
+<section id="disclaimer" class="px-6 md:px-12 lg:px-16 pb-20">
+  <div class="mx-auto max-w-6xl border-t border-white/20 pt-12 grid gap-6">
+    <div class="grid gap-2">
+      <h2 class="text-2xl font-normal" style="letter-spacing: -0.03em">免責聲明</h2>
+      <p class="text-sm text-gray-400">使用本網站(以下稱「本站」)即表示您已閱讀、瞭解並同意下列條款。如不同意,請停止使用本站。</p>
+    </div>
+    <ol class="grid gap-4 text-sm text-gray-300 leading-relaxed max-w-prose list-decimal pl-5">
+      <li><span class="text-white font-medium">非投資顧問。</span>本站及其製作者並非依《證券投資信託及顧問法》經主管機關核准之證券投資顧問事業,亦未以任何方式收取費用或報酬。本站內容不屬於證券投資分析建議,亦非針對任何個人財務狀況所提供之意見。</li>
+      <li><span class="text-white font-medium">不構成要約或推薦。</span>本站所稱「推薦」、「做多」、「做空」、「當沖熱門標的」等名單,均為依公開資料與固定規則自動篩選、排序之結果,僅供研究與學習參考,不構成買賣任何有價證券之要約、招攬、建議或保證。</li>
+      <li><span class="text-white font-medium">資料來源與正確性。</span>本站資料取自臺灣證券交易所、證券櫃檯買賣中心、臺灣集中保管結算所之公開資訊,經程式整理計算而成。本站力求正確,但不保證資料之正確性、完整性與即時性;原始機構可能於公布後更正資料,一切以各機構官方公告為準。「隔日沖賣壓」等標籤為依公開資料之推估,並非實際券商分點交易資料。</li>
+      <li><span class="text-white font-medium">投資風險自負。</span>有價證券投資具有風險,價格可能上漲或下跌,投資人可能損失全部本金。當日沖銷、融資融券等信用交易之風險更高,可能產生超過本金之損失。過去表現不代表未來績效。投資人應審慎評估自身財務狀況與風險承受能力,必要時諮詢合格之專業顧問,並自行承擔一切投資決策之結果。</li>
+      <li><span class="text-white font-medium">責任限制。</span>對於任何人因使用或信賴本站內容、資料錯誤或遺漏、網站中斷或延遲所直接或間接產生之任何損失或損害,本站及其製作者在法律許可之最大範圍內,不負任何賠償責任。</li>
+      <li><span class="text-white font-medium">智慧財產權。</span>原始資料之權利屬於各資料提供機構。本站之版面設計與程式由製作者所有,未經同意不得用於商業用途。</li>
+      <li><span class="text-white font-medium">條款修改與準據法。</span>本站得隨時修改本聲明,修改後之內容自公布於本站時生效。本聲明之解釋與適用,以中華民國法律為準據法。</li>
+    </ol>
+    <p class="text-xs text-gray-500">最後更新:2026 年 10 月 14 日</p>
+  </div>
+</section>
+
+<script>
+(function () {
+  // ---- 進場動畫 ----
+  const H = "看懂大戶籌碼\n上市櫃各選 20 檔。", CHAR_DELAY = 30, START = 200;
+  const lines = H.split("\n");
+  const h1 = document.getElementById("heading");
+  h1.innerHTML = lines.map((line, li) => [...line].map((ch, ci) =>
+    `<span class="char" aria-hidden="true" style="transition-delay:${li * line.length * CHAR_DELAY + ci * CHAR_DELAY}ms">${ch === " " ? " " : ch}</span>`
+  ).join("")).join("<br>");
+  setTimeout(() => h1.querySelectorAll(".char").forEach((c) => c.classList.add("on")), START);
+  document.querySelectorAll(".fade").forEach((el) => setTimeout(() => el.classList.add("on"), +el.dataset.delay));
+
+  // ---- 資料:由 build_site.py 從證交所/櫃買中心/集保盤後資料計算後嵌入 ----
+  const DATA = /*DATA*/null;
+  const WEEK = "日一二三四五六";
+  const days = (DATA && DATA.days) || [];
+  const parseDay = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const store = {
+    get(k) { try { return localStorage.getItem("picks-" + k); } catch (_) { return null; } },
+    set(k, v) { try { localStorage.setItem("picks-" + k, v); } catch (_) {} },
+  };
+  const state = { day: days.length ? days[0].date : null, market: store.get("market") || "上市", dtSide: store.get("dtSide") || "long", sort: store.get("sort") || "score" };
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("zh-TW");
+  const cls = (n) => (n > 0 ? "up" : n < 0 ? "down" : "flat");
+
+  function spark(raw, labels) {
+    const idx = raw.map((v, i) => i).filter((i) => raw[i] != null);
+    const s = idx.map((i) => raw[i]);
+    labels = idx.map((i) => labels[i]);
+    if (s.length < 2) return "";
+    const W = 200, Hh = 56, P = 6;
+    const min = Math.min(...s), max = Math.max(...s), span = max - min || 1;
+    const x = (i) => P + (i * (W - P * 2)) / (s.length - 1);
+    const y = (v) => Hh - P - ((v - min) / span) * (Hh - P * 2);
+    const pts = s.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    const color = s[s.length - 1] >= s[0] ? "var(--up)" : "var(--down)";
+    const area = `M${pts[0]} L${pts.join(" L")} L${x(s.length - 1)},${Hh - P} L${x(0)},${Hh - P} Z`;
+    const dots = s.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="${i === s.length - 1 ? 3.5 : 8}" fill="${i === s.length - 1 ? color : "transparent"}"><title>${labels[i]} 收盤 ${v}</title></circle>`).join("");
+    return `<svg class="spark" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="近 5 日收盤走勢">
+      <line stroke="rgba(255,255,255,0.12)" x1="${P}" x2="${W - P}" y1="${y(min)}" y2="${y(min)}"/>
+      <line stroke="rgba(255,255,255,0.12)" x1="${P}" x2="${W - P}" y1="${y(max)}" y2="${y(max)}"/>
+      <path d="${area}" fill="${color}" fill-opacity="0.14"/>
+      <polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
+      ${dots}</svg>`;
+  }
+
+  function card(p, day) {
+    const vals = p.series.filter((v) => v != null);
+    const top = p.rank <= 3;
+    return `<article class="rounded-xl border ${top ? "border-white/40" : "border-white/15"} bg-white/[0.04] p-5 grid gap-4 min-w-0">
+      <div class="flex items-center gap-3">
+        <span class="w-7 h-7 rounded-full grid place-items-center text-xs num ${top ? "bg-white text-black" : "border border-white/20 text-gray-300"}" title="推薦排名">${p.rank}</span>
+        <div class="min-w-0 flex-1">
+          <div class="text-lg font-medium leading-tight">${p.name}<span class="ml-2 text-sm text-gray-400 num">${p.code}</span></div>
+          <div class="text-xs text-gray-400">${p.market}・${p.sector}</div>
+        </div>
+        <div class="ring" style="--p:${p.score}" title="推薦分數 ${p.score} / 100"><span class="num">${p.score}</span></div>
+      </div>
+      <div class="grid grid-cols-[auto_1fr] gap-5 items-center">
+        <div class="grid gap-1">
+          <span class="text-2xl font-medium num">${fmt(p.close)}</span>
+          <span class="text-sm font-medium num ${cls(p.chg)}">${p.chg > 0 ? "▲" : p.chg < 0 ? "▼" : ""}${Math.abs(p.chg).toFixed(2)}%</span>
+          <span class="text-xs text-gray-400 num">成交 ${fmt(p.vol)} 張</span>
+        </div>
+        <div class="min-w-0 grid gap-1">${spark(p.series, day.seriesDates)}
+          <div class="flex justify-between text-[11px] text-gray-500"><span>近 5 日收盤</span><span class="num">${fmt(Math.min(...vals))} – ${fmt(Math.max(...vals))}</span></div>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2">${p.tags.map((t) => `<span class="liquid-glass border border-white/20 rounded-full px-3 py-0.5 text-xs text-gray-200">${t}</span>`).join("")}</div>
+      <p class="text-sm text-gray-300 leading-relaxed">${p.reason}</p>
+    </article>`;
+  }
+
+  // 排行表(成交量、週轉率):上市/上櫃各前 20;「全部」取兩市場合併後的前 20
+  const pct = (v) => (v == null ? "—" : `${v.toFixed(2)}%`);
+  const RANKS = [
+    { data: "volumeRank", key: "volume", title: "voTitle", body: "voRows", name: "成交量", bar: (v) => fmt(v),
+      cols: [(x) => x.value.toFixed(2), (x) => pct(x.turnover)] },
+    { data: "turnover", key: "turnover", title: "toTitle", body: "toRows", name: "週轉率", bar: pct,
+      cols: [(x) => fmt(x.volume), (x) => x.value.toFixed(2)] },
+  ];
+  function renderRank(day, cfg) {
+    const label = state.market === "全部" ? "上市櫃" : state.market;
+    $(cfg.title).textContent = `${label}${cfg.name}前 20 名`;
+    let rows = (day[cfg.data] || []).filter((x) => state.market === "全部" || x.market === state.market);
+    rows = rows.slice().sort((a, b) => b[cfg.key] - a[cfg.key]).slice(0, 20);
+    if (!rows.length) {
+      $(cfg.body).innerHTML = `<tr><td colspan="7" class="py-8 text-center text-gray-400">這一天沒有${cfg.name}資料。</td></tr>`;
+      return;
+    }
+    const max = rows[0][cfg.key];
+    $(cfg.body).innerHTML = rows.map((x, i) => `<tr>
+      <td class="py-3 pl-4 pr-2 num text-gray-400">${i + 1}</td>
+      <td class="py-3 px-2 whitespace-nowrap"><span class="font-medium">${x.name}</span><span class="ml-2 text-xs text-gray-400 num">${x.code}</span>
+        ${x.inPicks ? `<span class="ml-2 text-[11px] px-2 py-0.5 rounded-full bg-white text-black align-middle">推薦股</span>` : ""}
+        <div class="text-xs text-gray-500">${state.market === "全部" ? x.market + "・" : ""}${x.sector}</div></td>
+      <td class="py-3 px-2 text-right num">${fmt(x.close)}</td>
+      <td class="py-3 px-2 text-right num ${cls(x.chgPct)}">${x.chgPct > 0 ? "+" : ""}${x.chgPct.toFixed(2)}%</td>
+      ${cfg.cols.map((f) => `<td class="py-3 px-2 text-right num">${f(x)}</td>`).join("")}
+      <td class="py-3 pl-2 pr-4"><div class="flex items-center gap-3">
+        <span class="num w-20 text-right">${cfg.bar(x[cfg.key])}</span>
+        <span class="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden"><span class="block h-full rounded-full bg-white" style="width:${(x[cfg.key] / max * 100).toFixed(1)}%"></span></span>
+      </div></td></tr>`).join("");
+  }
+
+  // 當沖熱門標的:做多「強勢續攻」、做空「隔日沖賣壓」,各 20 檔
+  const DT_DESC = {
+    long: "做多「強勢續攻」:今天上漲、收在高點、三大法人有買超,而且量增、週轉率與當沖比率高的股票。分數 = 漲幅 20 + 收盤位置 15 + 法人買超佔成交量 20 + 量增 15 + 週轉率 20 + 當沖比率 10。",
+    short: "做空「隔日沖賣壓」:今天上漲但三大法人沒有買超,買盤多來自短線資金,隔天早盤常有獲利了結的賣壓。分數 = 漲幅 20 + 收盤位置 10 + 法人越少買越高 20 + 量增 20 + 週轉率 20 + 當沖比率 10。大跌日這類股票不足 20 檔時,以「弱勢續跌」補足:今天下跌、收在低點、三大法人賣超,分數 = 跌幅 20 + 收低 15 + 法人賣超佔量 20 + 量增 15 + 週轉率 20 + 當沖比率 10。只列可以先賣後買的股票。",
+  };
+  function renderDayTrade(day) {
+    const d = parseDay(day.date);
+    $("dtAsof").textContent = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} 週${WEEK[d.getDay()]} 盤後篩選・供下一個交易日參考`;
+    $("dtTitle").textContent = `當沖熱門標的・${state.dtSide === "long" ? "做多" : "做空"} 20 檔`;
+    $("dtDesc").textContent = DT_DESC[state.dtSide];
+    document.querySelectorAll(".dts").forEach((b) => {
+      const on = b.dataset.side === state.dtSide;
+      b.setAttribute("aria-pressed", on);
+      b.className = `dts px-4 py-1.5 rounded-md text-sm transition-colors ${on ? "bg-white text-black" : "text-gray-300 hover:text-white"}`;
+    });
+    const rows = ((day.dayTrade || {})[state.dtSide]) || [];
+    if (!rows.length) {
+      $("dtRows").innerHTML = `<tr><td colspan="9" class="py-8 text-center text-gray-400">這一天沒有當沖標的資料。</td></tr>`;
+      return;
+    }
+    $("dtRows").innerHTML = rows.map((x) => `<tr class="align-top">
+      <td class="py-3 pl-4 pr-2 num text-gray-400">${x.rank}</td>
+      <td class="py-3 px-2 min-w-[300px]">
+        <div class="whitespace-nowrap"><span class="font-medium">${x.name}</span><span class="ml-2 text-xs text-gray-400 num">${x.code}</span>
+          <span class="ml-1 text-xs text-gray-500">${x.market}・${x.sector}</span></div>
+        <div class="flex flex-wrap gap-1 mt-1">${x.tags.map((t) => `<span class="text-[11px] px-2 py-0.5 rounded-full ${t === "隔日沖賣壓" || t === "弱勢續跌" ? "bg-white text-black" : "border border-white/20 text-gray-300"}">${t}</span>`).join("")}</div>
+        <div class="text-xs text-gray-400 mt-1 leading-relaxed">${x.reason}</div></td>
+      <td class="py-3 px-2 text-right num">${fmt(x.close)}</td>
+      <td class="py-3 px-2 text-right num ${cls(x.chgPct)}">${x.chgPct > 0 ? "+" : ""}${x.chgPct.toFixed(2)}%</td>
+      <td class="py-3 px-2 text-right num">${x.turnover.toFixed(2)}%</td>
+      <td class="py-3 px-2 text-right num">${x.dtRatio.toFixed(1)}%</td>
+      <td class="py-3 px-2 text-right num">${x.surge.toFixed(1)} 倍</td>
+      <td class="py-3 px-2 text-right num ${cls(x.instNet)}">${x.instNet > 0 ? "+" : ""}${fmt(x.instNet)}</td>
+      <td class="py-3 pl-2 pr-4 text-right num font-medium">${x.score.toFixed(1)}</td></tr>`).join("");
+  }
+
+  // 首頁上方的指數列:加權、櫃買與類股指數
+  function renderIndices(day) {
+    const d = parseDay(day.date);
+    const items = (day.indices || []).map((x) => {
+      const c = cls(x.chg), arrow = x.chg > 0 ? "▲" : x.chg < 0 ? "▼" : "";
+      return `<div class="flex-none grid leading-tight py-1" title="${x.name} 收盤 ${fmt(x.close)}">
+        <span class="text-xs text-gray-300">${x.name}</span>
+        <span class="num text-sm font-medium">${x.close.toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <span class="num text-xs ${c}">${arrow}${Math.abs(x.chg).toFixed(2)} (${x.chgPct > 0 ? "+" : ""}${x.chgPct.toFixed(2)}%)</span>
+      </div>`;
+    }).join("");
+    $("indices").innerHTML = `<span class="flex-none text-xs text-gray-300 whitespace-nowrap">${d.getMonth() + 1}/${d.getDate()}<br>收盤</span>`
+      + (items || `<span class="text-xs text-gray-300">這一天沒有指數資料</span>`);
+  }
+
+  function render() {
+    if (!days.length) {
+      $("list").innerHTML = `<div class="md:col-span-2 rounded-xl border border-dashed border-white/20 p-10 text-center text-gray-300">還沒有匯入推薦資料。請執行 build_site.py 產生網頁。</div>`;
+      return;
+    }
+    const day = days.find((d) => d.date === state.day) || days[0];
+    $("history").innerHTML = days.map((dd) => {
+      const d = parseDay(dd.date), on = dd.date === day.date;
+      return `<button type="button" id="d-${dd.date}" data-day="${dd.date}" aria-pressed="${on}"
+        class="flex-none grid justify-items-center min-w-[68px] px-3 py-2 rounded-lg text-sm transition-colors ${on ? "bg-white text-black" : "liquid-glass border border-white/20 text-gray-300 hover:text-white"}">
+        <span class="font-medium num">${d.getMonth() + 1}/${d.getDate()}</span><span class="text-[11px] ${on ? "text-gray-600" : "text-gray-400"}">週${WEEK[d.getDay()]}</span></button>`;
+    }).join("");
+    document.querySelectorAll(".mk").forEach((b) => {
+      const on = b.dataset.market === state.market;
+      b.setAttribute("aria-pressed", on);
+      b.className = `mk px-4 py-1.5 rounded-md text-sm transition-colors ${on ? "bg-white text-black" : "text-gray-300 hover:text-white"}`;
+    });
+    $("sortBy").value = state.sort;
+    const d = parseDay(day.date);
+    const ub = day.universeByMarket || {};
+    const pool = state.market === "全部" ? day.universe : (ub[state.market] ?? day.universe);
+    const pending = (day.marginPending || []).filter((m) => state.market === "全部" || m === state.market);
+    $("asof").textContent = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} 週${WEEK[d.getDay()]} 盤後・從 ${fmt(pool)} 檔${state.market === "全部" ? "上市櫃" : state.market}股中挑選`
+      + (pending.length ? `・${pending.join("、")}融資融券尚未公布,分數暫不含融資項目` : "");
+    const n = day.picks.filter((p) => state.market === "全部" || p.market === state.market).length;
+    $("listTitle").textContent = `${state.market === "全部" ? "上市櫃" : state.market}推薦 ${n} 檔`;
+    $("genAt").textContent = `本頁資料更新於 ${DATA.generatedAt},集保股權分散表為 ${day.tdccDate} 當週。`;
+
+    let rows = day.picks.filter((p) => state.market === "全部" || p.market === state.market);
+    const key = { score: (p) => p.score, chg: (p) => p.chg, vol: (p) => p.vol }[state.sort];
+    rows = rows.slice().sort((a, b) => key(b) - key(a));
+
+    $("sCount").textContent = rows.length;
+    $("sAvg").textContent = rows.length ? (rows.reduce((s, p) => s + p.score, 0) / rows.length).toFixed(1) : "—";
+    const up = rows.filter((p) => p.chg > 0).length, down = rows.filter((p) => p.chg < 0).length;
+    $("sUpDown").innerHTML = `<span class="up">${up}</span> / <span class="down">${down}</span>`;
+    const sec = {};
+    rows.forEach((p) => (sec[p.sector] = (sec[p.sector] || 0) + 1));
+    const topSec = Object.entries(sec).sort((a, b) => b[1] - a[1])[0];
+    $("sSector").textContent = topSec ? `${topSec[0]}(${topSec[1]} 檔)` : "—";
+
+    RANKS.forEach((cfg) => renderRank(day, cfg));
+    renderIndices(day);
+    renderDayTrade(day);
+    $("list").innerHTML = rows.length ? rows.map((p) => card(p, day)).join("")
+      : `<div class="md:col-span-2 rounded-xl border border-dashed border-white/20 p-10 text-center text-gray-300">這一天沒有${state.market}的推薦股,換個市場看看。</div>`;
+  }
+
+  $("history").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-day]");
+    if (b) { state.day = b.dataset.day; render(); }
+  });
+  document.querySelectorAll(".mk").forEach((b) => b.addEventListener("click", () => {
+    state.market = b.dataset.market; store.set("market", state.market); render();
+  }));
+  document.querySelectorAll(".dts").forEach((b) => b.addEventListener("click", () => {
+    state.dtSide = b.dataset.side; store.set("dtSide", state.dtSide); render();
+  }));
+  $("sortBy").addEventListener("change", (e) => { state.sort = e.target.value; store.set("sort", state.sort); render(); });
+
+  render();
+})();
+</script>
