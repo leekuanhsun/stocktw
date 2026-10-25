@@ -116,7 +116,10 @@ def main():
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
             "<style>body{margin:0}[hidden]{display:none!important}img{max-width:100%}</style>\n"
             f"</head>\n<body>\n{body}\n</body>\n</html>\n")
-    for target in (SITE, os.path.join(BASE, "index.html")):  # vibe-site 與本資料夾(GitHub Pages 首頁)
+    targets = [os.path.join(BASE, "index.html")]  # GitHub Pages 首頁
+    if os.path.isdir(os.path.dirname(SITE)):  # 本機另有 vibe-site 資料夾時一併更新
+        targets.append(SITE)
+    for target in targets:
         with open(target, "w", encoding="utf-8") as f:
             f.write(page)
         print("已匯入", [d["date"] for d in days], "→", os.path.abspath(target))

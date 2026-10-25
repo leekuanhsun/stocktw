@@ -32,14 +32,16 @@ TDCC_CANDIDATES = 50    # 每個市場只對前 50 名候選股查集保上週�
 WEIGHTS = {"inst1": 25, "inst5": 25, "streak": 10, "big": 25, "margin": 15, "broker": 0}
 
 
-# 櫃買中心的憑證缺少 Authority Key Identifier 欄位,Python 3.13 的嚴格模式(VERIFY_X509_STRICT)會拒絕。
-# 只對櫃買中心關閉這項格式檢查,憑證鏈與主機名稱照常驗證;其他網站維持預設的嚴格檢查。
-TPEX_SSL = ssl.create_default_context()
-TPEX_SSL.verify_flags &= ~ssl.VERIFY_X509_STRICT
+# 櫃買中心、證交所網站、集保中心的憑證缺少 Authority Key Identifier 欄位,Python 3.13 的嚴格模式(VERIFY_X509_STRICT)會拒絕。
+# 只對這幾個政府資料網站關閉這項格式檢查,憑證鏈與主機名稱照常驗證;其他網站維持預設的嚴格檢查。
+GOV_SSL = ssl.create_default_context()
+GOV_SSL.verify_flags &= ~ssl.VERIFY_X509_STRICT
+GOV_HOSTS = ("tpex.org.tw", "twse.com.tw", "tdcc.com.tw")
 
 
 def ssl_context(url):
-    return TPEX_SSL if urllib.parse.urlparse(url).hostname.endswith("tpex.org.tw") else None
+    host = urllib.parse.urlparse(url).hostname
+    return GOV_SSL if host.endswith(GOV_HOSTS) else None
 
 
 def http_get(url, cache_name=None, sleep=2.5):
@@ -404,7 +406,8 @@ class TdccHistory:
 
     def __init__(self):
         cj = http.cookiejar.CookieJar()
-        self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+        self.op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj),
+                                              urllib.request.HTTPSHandler(context=ssl_context(self.URL)))
         self.op.addheaders = list(UA.items())
         self.dates = None
 
